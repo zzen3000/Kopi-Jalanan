@@ -1,518 +1,571 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kopi Jalanan | Fuel for the Hustle</title>
-    
-    <!-- Tailwind CSS for Layouts -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Google Fonts: Oswald (Headings) & Roboto (Body) -->
-    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
-    
-    <!-- FontAwesome for Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kopi Jalanan | Fuel for the Hustle</title>
+    
+        <script src="https://cdn.tailwindcss.com"></script>
+    
+        <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-    <!-- Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        // FIX: Added signInWithCustomToken to the import below
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        // Firebase Configuration
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'kopi-jalanan-v1';
+        // --- FIXED FIREBASE CONFIGURATION & FALLBACK ---
 
-        // Global State
-        let cart = [];
-        let products = [];
-        let currentUser = null;
+        // Dummy Configuration for Local File Use
+        const DUMMY_FIREBASE_CONFIG = {
+            apiKey: "AIzaSy_DUMMY_API_KEY_FOR_LOCAL_RUN",
+            authDomain: "dummy-project.firebaseapp.com",
+            projectId: "dummy-project-id",
+            storageBucket: "dummy-project-id.appspot.com",
+            messagingSenderId: "1234567890",
+            appId: "1:234567890:web:abcdef"
+        };
 
-        // --- AUTHENTICATION (System Requirement) ---
-        async function initAuth() {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token);
-            } else {
-                await signInAnonymously(auth);
+        // Use environment config if available, otherwise use dummy config
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : DUMMY_FIREBASE_CONFIG;
+        
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'kopi-jalanan-v1';
+
+        // Global State
+        let cart = [];
+        let products = [];
+        let currentUser = null;
+        let isFirebaseReady = false; // Flag to track successful Firebase connection
+
+        // Sample data for Local Storage fallback
+        const FALLBACK_PRODUCTS = [
+            { id: 'fb-1', name: 'Kopi O Padu', price: 4.00, desc: 'Classic black coffee. Bold, rich, and straight to the point.', imgUrl: 'https://images.unsplash.com/photo-1549216335-513470ff1961?q=80&w=1964&auto=format&fit=crop' },
+            { id: 'fb-2', name: 'Teh Tarik Kaw', price: 5.50, desc: 'Creamy milk tea, pulled high for that signature frothy top.', imgUrl: 'https://images.unsplash.com/photo-1627087796245-a744e8d3509b?q=80&w=1964&auto=format&fit=crop' },
+            { id: 'fb-3', name: 'Mocha Drizzle', price: 7.00, desc: 'Espresso with rich chocolate syrup and steamed milk.', imgUrl: 'https://images.unsplash.com/photo-1579737976694-811059f635c4?q=80&w=1964&auto=format&fit=crop' }
+        ];
+
+        // --- AUTHENTICATION & INITIALIZATION ---
+        async function initAuth() {
+            try {
+                // Use custom token if injected, otherwise sign in anonymously
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                isFirebaseReady = true;
+            } catch (e) {
+                console.warn("Firebase Auth failed (using dummy keys or network error). Falling back to Local Storage.", e);
+                isFirebaseReady = false;
             }
-        }
-        initAuth();
+        }
 
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                currentUser = user;
-                console.log("User authenticated:", user.uid);
-                // Only fetch products after auth is confirmed
-                fetchProducts(); 
+        initAuth().then(() => {
+            if (isFirebaseReady) {
+                // Fetch products from Firestore if authentication succeeded
+                fetchProducts();
+            } else {
+                // Load products from Local Storage if Firebase is not ready
+                loadProductsFallback();
+                renderMenu();
+                renderAdminTable();
             }
         });
 
-        // --- FIRESTORE FUNCTIONS ---
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                console.log("User authenticated:", user.uid);
+            }
+        });
+        
+        // --- LOCAL STORAGE FALLBACK FUNCTIONS ---
+        
+        function saveProductsFallback() {
+            localStorage.setItem('kopiJalananProducts', JSON.stringify(products));
+        }
 
-        // 1. Fetch Products (Real Data Flow)
-        function fetchProducts() {
-            if (!currentUser) return;
-            
-            const productsRef = collection(db, 'artifacts', appId, 'public', 'data', 'products');
-            
-            onSnapshot(productsRef, (snapshot) => {
-                products = [];
-                snapshot.forEach((doc) => {
-                    products.push({ id: doc.id, ...doc.data() });
-                });
+        function loadProductsFallback() {
+            const storedProducts = localStorage.getItem('kopiJalananProducts');
+            if (storedProducts) {
+                products = JSON.parse(storedProducts);
+            } else {
+                // Initialize with sample data if nothing is stored
+                products = FALLBACK_PRODUCTS;
+                saveProductsFallback();
+            }
+        }
+
+        // --- FIRESTORE FUNCTIONS (Conditional execution) ---
+
+        // 1. Fetch Products (Real Data Flow)
+        function fetchProducts() {
+            if (!currentUser || !isFirebaseReady) return;
+            
+            const productsRef = collection(db, 'artifacts', appId, 'public', 'data', 'products');
+            
+            onSnapshot(productsRef, (snapshot) => {
+                products = [];
+                snapshot.forEach((doc) => {
+                    products.push({ id: doc.id, ...doc.data() });
+                });
+                renderMenu();
+                renderAdminTable();
+                saveProductsFallback(); // Sync live data to local storage as backup
+            }, (error) => {
+                console.error("Error getting products from Firestore:", error);
+                // Fallback if the live listener fails after initial auth
+                loadProductsFallback();
                 renderMenu();
                 renderAdminTable();
-            }, (error) => {
-                console.error("Error getting products:", error);
-            });
-        }
+            });
+        }
 
-        // 2. Add Product (Admin Logic)
-        window.addProduct = async function(event) {
-            event.preventDefault();
-            if (!currentUser) return;
+        // 2. Add Product (Admin Logic)
+        window.addProduct = async function(event) {
+            event.preventDefault();
 
-            const name = document.getElementById('prodName').value;
-            const price = parseFloat(document.getElementById('prodPrice').value);
-            const desc = document.getElementById('prodDesc').value;
-            const imgUrl = document.getElementById('prodImg').value || 'https://placehold.co/400x300/2c2c2c/FFAE00?text=No+Image';
+            const name = document.getElementById('prodName').value;
+            const price = parseFloat(document.getElementById('prodPrice').value);
+            const desc = document.getElementById('prodDesc').value;
+            const imgUrl = document.getElementById('prodImg').value || 'https://placehold.co/400x300/2c2c2c/FFAE00?text=No+Image';
 
-            try {
-                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'products'), {
-                    name, price, desc, imgUrl, createdAt: new Date().toISOString()
-                });
-                alert('Product Added!');
-                document.getElementById('adminForm').reset();
-            } catch (e) {
-                console.error("Error adding document: ", e);
-                alert("Error adding product. Check console.");
-            }
-        }
+            const newProduct = { name, price, desc, imgUrl, createdAt: new Date().toISOString() };
 
-        // 3. Delete Product (Admin Logic)
-        window.deleteProduct = async function(id) {
-            if(!confirm("Delete this brew?")) return;
-            if (!currentUser) return;
-            
-            try {
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'products', id));
-            } catch (e) {
-                console.error("Error deleting: ", e);
-            }
-        }
+            try {
+                if (isFirebaseReady && currentUser) {
+                    // Firebase Add
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'products'), newProduct);
+                } else {
+                    // Local Storage Fallback Add
+                    const tempId = 'local-' + Date.now();
+                    products.push({ id: tempId, ...newProduct });
+                    saveProductsFallback();
+                    renderMenu();
+                    renderAdminTable();
+                }
 
-        // --- UI FUNCTIONS ---
+                alert('Product Added!');
+                document.getElementById('adminForm').reset();
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                alert("Error adding product. Check console.");
+            }
+        }
 
-        // Render Public Menu
-        function renderMenu() {
-            const grid = document.getElementById('menuGrid');
-            grid.innerHTML = '';
+        // 3. Delete Product (Admin Logic)
+        window.deleteProduct = async function(id) {
+            if(!confirm("Delete this brew?")) return;
+            
+            try {
+                if (isFirebaseReady && currentUser) {
+                    // Firebase Delete
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'products', id));
+                } else {
+                    // Local Storage Fallback Delete
+                    const index = products.findIndex(p => p.id === id);
+                    if (index > -1) {
+                        products.splice(index, 1);
+                        saveProductsFallback();
+                        renderMenu();
+                        renderAdminTable();
+                    }
+                }
+            } catch (e) {
+                console.error("Error deleting: ", e);
+            }
+        }
 
-            if (products.length === 0) {
-                grid.innerHTML = '<p class="text-gray-400 text-center col-span-full">No brews available yet. Go to Admin to add products.</p>';
-                return;
-            }
+        // --- UI FUNCTIONS ---
 
-            products.forEach(prod => {
-                const card = `
-                    <div class="bg-zinc-800 border border-zinc-700 p-4 hover:border-amber-500 transition-colors group">
-                        <div class="h-48 overflow-hidden mb-4 relative">
-                            <img src="${prod.imgUrl}" alt="${prod.name}" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500">
-                            <div class="absolute top-2 right-2 bg-amber-500 text-black font-bold px-2 py-1 text-sm">RM ${prod.price.toFixed(2)}</div>
-                        </div>
-                        <h3 class="text-2xl font-oswald text-white uppercase mb-1">${prod.name}</h3>
-                        <p class="text-gray-400 text-sm mb-4 line-clamp-2">${prod.desc}</p>
-                        <div class="flex gap-2">
-                            <button onclick="viewDetail('${prod.id}')" class="flex-1 border border-gray-500 text-gray-300 py-2 hover:bg-gray-700 text-sm uppercase tracking-wider">Details</button>
-                            <button onclick="addToCart('${prod.id}')" class="flex-1 bg-amber-500 text-black font-bold py-2 hover:bg-amber-400 text-sm uppercase tracking-wider">Add +</button>
-                        </div>
-                    </div>
-                `;
-                grid.innerHTML += card;
-            });
-        }
+        // Render Public Menu
+        function renderMenu() {
+            const grid = document.getElementById('menuGrid');
+            grid.innerHTML = '';
 
-        // Render Admin Table
-        function renderAdminTable() {
-            const tbody = document.getElementById('adminTableBody');
-            tbody.innerHTML = '';
-            products.forEach(prod => {
-                tbody.innerHTML += `
-                    <tr class="border-b border-zinc-700">
-                        <td class="p-3">${prod.name}</td>
-                        <td class="p-3">RM ${prod.price.toFixed(2)}</td>
-                        <td class="p-3 text-right">
-                            <button onclick="deleteProduct('${prod.id}')" class="text-red-500 hover:text-red-400"><i class="fas fa-trash"></i></button>
-                        </td>
-                    </tr>
-                `;
-            });
-        }
+            if (products.length === 0) {
+                grid.innerHTML = '<p class="text-gray-400 text-center col-span-full">No brews available yet. Go to Admin to add products.</p>';
+                return;
+            }
 
-        // View Detail Page
-        window.viewDetail = function(id) {
-            const prod = products.find(p => p.id === id);
-            if (!prod) return;
+            products.forEach(prod => {
+                const card = `
+                    <div class="bg-zinc-800 border border-zinc-700 p-4 hover:border-amber-500 transition-colors group">
+                        <div class="h-48 overflow-hidden mb-4 relative">
+                            <img src="${prod.imgUrl}" alt="${prod.name}" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500">
+                            <div class="absolute top-2 right-2 bg-amber-500 text-black font-bold px-2 py-1 text-sm">RM ${prod.price.toFixed(2)}</div>
+                        </div>
+                        <h3 class="text-2xl font-oswald text-white uppercase mb-1">${prod.name}</h3>
+                        <p class="text-gray-400 text-sm mb-4 line-clamp-2">${prod.desc}</p>
+                        <div class="flex gap-2">
+                            <button onclick="viewDetail('${prod.id}')" class="flex-1 border border-gray-500 text-gray-300 py-2 hover:bg-gray-700 text-sm uppercase tracking-wider">Details</button>
+                            <button onclick="addToCart('${prod.id}')" class="flex-1 bg-amber-500 text-black font-bold py-2 hover:bg-amber-400 text-sm uppercase tracking-wider">Add +</button>
+                        </div>
+                    </div>
+                `;
+                grid.innerHTML += card;
+            });
+        }
 
-            document.getElementById('detailImage').src = prod.imgUrl;
-            document.getElementById('detailName').innerText = prod.name;
-            document.getElementById('detailPrice').innerText = `RM ${prod.price.toFixed(2)}`;
-            document.getElementById('detailDesc').innerText = prod.desc;
-            
-            // Set the add to cart button in detail view
-            const btn = document.getElementById('detailAddBtn');
-            btn.onclick = () => { addToCart(id); };
+        // Render Admin Table
+        function renderAdminTable() {
+            const tbody = document.getElementById('adminTableBody');
+            tbody.innerHTML = '';
+            products.forEach(prod => {
+                tbody.innerHTML += `
+                    <tr class="border-b border-zinc-700">
+                        <td class="p-3">${prod.name}</td>
+                        <td class="p-3">RM ${prod.price.toFixed(2)}</td>
+                        <td class="p-3 text-right">
+                            <button onclick="deleteProduct('${prod.id}')" class="text-red-500 hover:text-red-400"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
 
-            showPage('detailPage');
-        }
+        // View Detail Page
+        window.viewDetail = function(id) {
+            const prod = products.find(p => p.id === id);
+            if (!prod) return;
 
-        // --- CART LOGIC ---
+            document.getElementById('detailImage').src = prod.imgUrl;
+            document.getElementById('detailName').innerText = prod.name;
+            document.getElementById('detailPrice').innerText = `RM ${prod.price.toFixed(2)}`;
+            document.getElementById('detailDesc').innerText = prod.desc;
+            
+            // Set the add to cart button in detail view
+            const btn = document.getElementById('detailAddBtn');
+            btn.onclick = () => { addToCart(id); };
 
-        window.addToCart = function(id) {
-            const prod = products.find(p => p.id === id);
-            if (!prod) return;
-            
-            cart.push(prod);
-            updateCartUI();
-            // Simple feedback
-            const badge = document.getElementById('cartCount');
-            badge.classList.add('animate-bounce');
-            setTimeout(() => badge.classList.remove('animate-bounce'), 1000);
-        }
+            showPage('detailPage');
+        }
 
-        window.removeFromCart = function(index) {
-            cart.splice(index, 1);
-            updateCartUI();
-        }
+        // --- CART LOGIC ---
 
-        function updateCartUI() {
-            // Update Badge
-            document.getElementById('cartCount').innerText = cart.length;
+        window.addToCart = function(id) {
+            const prod = products.find(p => p.id === id);
+            if (!prod) return;
+            
+            cart.push(prod);
+            updateCartUI();
+            // Simple feedback
+            const badge = document.getElementById('cartCount');
+            badge.classList.add('animate-bounce');
+            setTimeout(() => badge.classList.remove('animate-bounce'), 1000);
+        }
 
-            // Update Cart Page List
-            const list = document.getElementById('cartList');
-            list.innerHTML = '';
-            let total = 0;
+        window.removeFromCart = function(index) {
+            cart.splice(index, 1);
+            updateCartUI();
+        }
 
-            if (cart.length === 0) {
-                list.innerHTML = '<p class="text-gray-500">Your basket is empty.</p>';
-            } else {
-                cart.forEach((item, index) => {
-                    total += item.price;
-                    list.innerHTML += `
-                        <div class="flex justify-between items-center border-b border-zinc-700 py-3">
-                            <div>
-                                <div class="font-bold text-white">${item.name}</div>
-                                <div class="text-sm text-amber-500">RM ${item.price.toFixed(2)}</div>
-                            </div>
-                            <button onclick="removeFromCart(${index})" class="text-gray-500 hover:text-red-500"><i class="fas fa-times"></i></button>
-                        </div>
-                    `;
-                });
-            }
+        function updateCartUI() {
+            // Update Badge
+            document.getElementById('cartCount').innerText = cart.length;
 
-            // Update Totals
-            const totalFormatted = `RM ${total.toFixed(2)}`;
-            document.getElementById('cartTotal').innerText = totalFormatted;
-            document.getElementById('checkoutTotal').innerText = totalFormatted;
-        }
+            // Update Cart Page List
+            const list = document.getElementById('cartList');
+            list.innerHTML = '';
+            let total = 0;
 
-        // --- NAVIGATION & PAGE SWITCHING (SPA) ---
+            if (cart.length === 0) {
+                list.innerHTML = '<p class="text-gray-500">Your basket is empty.</p>';
+            } else {
+                cart.forEach((item, index) => {
+                    total += item.price;
+                    list.innerHTML += `
+                        <div class="flex justify-between items-center border-b border-zinc-700 py-3">
+                            <div>
+                                <div class="font-bold text-white">${item.name}</div>
+                                <div class="text-sm text-amber-500">RM ${item.price.toFixed(2)}</div>
+                            </div>
+                            <button onclick="removeFromCart(${index})" class="text-gray-500 hover:text-red-500"><i class="fas fa-times"></i></button>
+                        </div>
+                    `;
+                });
+            }
 
-        window.showPage = function(pageId) {
-            // Hide all pages
-            document.querySelectorAll('.page-section').forEach(el => el.classList.add('hidden'));
-            // Show target page
-            document.getElementById(pageId).classList.remove('hidden');
-            // Scroll to top
-            window.scrollTo(0,0);
-        }
+            // Update Totals
+            const totalFormatted = `RM ${total.toFixed(2)}`;
+            document.getElementById('cartTotal').innerText = totalFormatted;
+            document.getElementById('checkoutTotal').innerText = totalFormatted;
+        }
 
-        window.submitCheckout = function(e) {
-            e.preventDefault();
-            alert("This is a prototype. In the full version, this would connect to ToyyibPay/Billplz.");
-            cart = [];
-            updateCartUI();
-            showPage('homePage');
-        }
+        // --- NAVIGATION & PAGE SWITCHING (SPA) ---
 
-        // Make global for HTML access
-        window.products = products;
+        window.showPage = function(pageId) {
+            // Hide all pages
+            document.querySelectorAll('.page-section').forEach(el => el.classList.add('hidden'));
+            // Show target page
+            document.getElementById(pageId).classList.remove('hidden');
+            // Scroll to top
+            window.scrollTo(0,0);
+        }
 
-    </script>
+        window.submitCheckout = function(e) {
+            e.preventDefault();
+            alert("This is a prototype. In the full version, this would connect to ToyyibPay/Billplz.");
+            cart = [];
+            updateCartUI();
+            showPage('homePage');
+        }
 
-    <style>
-        /* Custom Aesthetics */
-        body {
-            background-color: #1a1a1a; /* Asphalt Dark */
-            color: #e5e5e5;
-        }
-        .font-oswald { font-family: 'Oswald', sans-serif; }
-        .text-street-yellow { color: #FFAE00; }
-        .bg-street-yellow { background-color: #FFAE00; }
-        
-        /* Hide scrollbar for clean modals */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #1a1a1a; }
-        ::-webkit-scrollbar-thumb { background: #444; }
-        ::-webkit-scrollbar-thumb:hover { background: #FFAE00; }
-    </style>
+        // Make global for HTML access
+        window.products = products;
+
+    </script>
+
+    <style>
+        /* Custom Aesthetics */
+        body {
+            background-color: #1a1a1a; /* Asphalt Dark */
+            color: #e5e5e5;
+        }
+        .font-oswald { font-family: 'Oswald', sans-serif; }
+        .text-street-yellow { color: #FFAE00; }
+        .bg-street-yellow { background-color: #FFAE00; }
+        
+        /* Hide scrollbar for clean modals */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1a1a1a; }
+        ::-webkit-scrollbar-thumb { background: #444; }
+        ::-webkit-scrollbar-thumb:hover { background: #FFAE00; }
+    </style>
 </head>
 <body class="min-h-screen flex flex-col">
 
-    <!-- NAVIGATION -->
-    <nav class="sticky top-0 z-50 bg-black border-b border-zinc-800 px-6 py-4 flex justify-between items-center">
-        <div class="text-2xl font-oswald font-bold tracking-wider text-white cursor-pointer" onclick="showPage('homePage')">
-            KOPI JALANAN<span class="text-street-yellow">.</span>
-        </div>
-        <div class="flex items-center gap-6">
-            <button onclick="showPage('homePage')" class="hidden md:block text-sm uppercase tracking-widest hover:text-street-yellow transition">Home</button>
-            <button onclick="showPage('menuPage')" class="text-sm uppercase tracking-widest hover:text-street-yellow transition">Menu</button>
-            <button onclick="showPage('cartPage')" class="relative text-xl hover:text-street-yellow transition">
-                <i class="fas fa-shopping-bag"></i>
-                <span id="cartCount" class="absolute -top-2 -right-2 bg-street-yellow text-black text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">0</span>
-            </button>
-            <button onclick="showPage('adminPage')" class="text-zinc-600 hover:text-zinc-300 text-xs uppercase border border-zinc-700 px-2 py-1 rounded">Admin</button>
-        </div>
-    </nav>
+        <nav class="sticky top-0 z-50 bg-black border-b border-zinc-800 px-6 py-4 flex justify-between items-center">
+        <div class="text-2xl font-oswald font-bold tracking-wider text-white cursor-pointer" onclick="showPage('homePage')">
+            KOPI JALANAN<span class="text-street-yellow">.</span>
+        </div>
+        <div class="flex items-center gap-6">
+            <button onclick="showPage('homePage')" class="hidden md:block text-sm uppercase tracking-widest hover:text-street-yellow transition">Home</button>
+            <button onclick="showPage('menuPage')" class="text-sm uppercase tracking-widest hover:text-street-yellow transition">Menu</button>
+            <button onclick="showPage('cartPage')" class="relative text-xl hover:text-street-yellow transition">
+                <i class="fas fa-shopping-bag"></i>
+                <span id="cartCount" class="absolute -top-2 -right-2 bg-street-yellow text-black text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">0</span>
+            </button>
+            <button onclick="showPage('adminPage')" class="text-zinc-600 hover:text-zinc-300 text-xs uppercase border border-zinc-700 px-2 py-1 rounded">Admin</button>
+        </div>
+    </nav>
 
-    <!-- MAIN CONTENT AREA -->
-    <main class="flex-grow">
+        <main class="flex-grow">
 
-        <!-- 1. HOMEPAGE -->
-        <section id="homePage" class="page-section block">
-            <!-- Hero -->
-            <div class="relative h-[70vh] flex items-center justify-center bg-[url('https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?q=80&w=1974&auto=format&fit=crop')] bg-cover bg-center bg-no-repeat">
-                <div class="absolute inset-0 bg-black/70"></div>
-                <div class="relative z-10 text-center px-4">
-                    <h1 class="text-5xl md:text-7xl font-oswald font-bold text-white mb-4 uppercase">
-                        Fuel for the <span class="text-street-yellow">Hustle</span>
-                    </h1>
-                    <p class="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-                        Premium street brew. Kota Samarahan prices. Order online, pickup, and go.
-                    </p>
-                    <button onclick="showPage('menuPage')" class="bg-street-yellow text-black font-bold py-3 px-8 uppercase tracking-widest hover:bg-white transition">
-                        Order Now
-                    </button>
-                </div>
-            </div>
-            <!-- Features -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-0 border-t border-zinc-800">
-                <div class="p-12 text-center border-b md:border-b-0 md:border-r border-zinc-800">
-                    <i class="fas fa-bolt text-3xl text-street-yellow mb-4"></i>
-                    <h3 class="font-oswald text-xl mb-2">Fast Pickup</h3>
-                    <p class="text-gray-500 text-sm">Skip the line. Your coffee is ready when you arrive.</p>
-                </div>
-                <div class="p-12 text-center border-b md:border-b-0 md:border-r border-zinc-800">
-                    <i class="fas fa-mug-hot text-3xl text-street-yellow mb-4"></i>
-                    <h3 class="font-oswald text-xl mb-2">Real Beans</h3>
-                    <p class="text-gray-500 text-sm">100% Arabica/Robusta blend. No instant powder.</p>
-                </div>
-                <div class="p-12 text-center">
-                    <i class="fas fa-tag text-3xl text-street-yellow mb-4"></i>
-                    <h3 class="font-oswald text-xl mb-2">Student Prices</h3>
-                    <p class="text-gray-500 text-sm">Affordable caffeine for late night study sessions.</p>
-                </div>
-            </div>
-        </section>
+                <section id="homePage" class="page-section block">
+                        <div class="relative h-[70vh] flex items-center justify-center bg-[url('https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?q=80&w=1974&auto=format&fit=crop')] bg-cover bg-center bg-no-repeat">
+                <div class="absolute inset-0 bg-black/70"></div>
+                <div class="relative z-10 text-center px-4">
+                    <h1 class="text-5xl md:text-7xl font-oswald font-bold text-white mb-4 uppercase">
+                        Fuel for the <span class="text-street-yellow">Hustle</span>
+                    </h1>
+                    <p class="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
+                        Premium street brew. Kota Samarahan prices. Order online, pickup, and go.
+                    </p>
+                    <button onclick="showPage('menuPage')" class="bg-street-yellow text-black font-bold py-3 px-8 uppercase tracking-widest hover:bg-white transition">
+                        Order Now
+                    </button>
+                </div>
+            </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-0 border-t border-zinc-800">
+                <div class="p-12 text-center border-b md:border-b-0 md:border-r border-zinc-800">
+                    <i class="fas fa-bolt text-3xl text-street-yellow mb-4"></i>
+                    <h3 class="font-oswald text-xl mb-2">Fast Pickup</h3>
+                    <p class="text-gray-500 text-sm">Skip the line. Your coffee is ready when you arrive.</p>
+                </div>
+                <div class="p-12 text-center border-b md:border-b-0 md:border-r border-zinc-800">
+                    <i class="fas fa-mug-hot text-3xl text-street-yellow mb-4"></i>
+                    <h3 class="font-oswald text-xl mb-2">Real Beans</h3>
+                    <p class="text-gray-500 text-sm">100% Arabica/Robusta blend. No instant powder.</p>
+                </div>
+                <div class="p-12 text-center">
+                    <i class="fas fa-tag text-3xl text-street-yellow mb-4"></i>
+                    <h3 class="font-oswald text-xl mb-2">Student Prices</h3>
+                    <p class="text-gray-500 text-sm">Affordable caffeine for late night study sessions.</p>
+                </div>
+            </div>
+        </section>
 
-        <!-- 2. MENU / LISTING PAGE -->
-        <section id="menuPage" class="page-section hidden px-6 py-12 max-w-7xl mx-auto">
-            <div class="text-center mb-12">
-                <h2 class="text-4xl font-oswald font-bold uppercase mb-2">The Menu</h2>
-                <div class="w-20 h-1 bg-street-yellow mx-auto"></div>
-            </div>
-            
-            <!-- Filters (Visual Only for now) -->
-            <div class="flex justify-center gap-4 mb-8 text-sm text-gray-500">
-                <span class="text-white cursor-pointer border-b border-street-yellow">All</span>
-                <span class="hover:text-white cursor-pointer">Coffee</span>
-                <span class="hover:text-white cursor-pointer">Non-Coffee</span>
-                <span class="hover:text-white cursor-pointer">Pastries</span>
-            </div>
+                <section id="menuPage" class="page-section hidden px-6 py-12 max-w-7xl mx-auto">
+            <div class="text-center mb-12">
+                <h2 class="text-4xl font-oswald font-bold uppercase mb-2">The Menu</h2>
+                <div class="w-20 h-1 bg-street-yellow mx-auto"></div>
+            </div>
+            
+                        <div class="flex justify-center gap-4 mb-8 text-sm text-gray-500">
+                <span class="text-white cursor-pointer border-b border-street-yellow">All</span>
+                <span class="hover:text-white cursor-pointer">Coffee</span>
+                <span class="hover:text-white cursor-pointer">Non-Coffee</span>
+                <span class="hover:text-white cursor-pointer">Pastries</span>
+            </div>
 
-            <!-- Dynamic Product Grid -->
-            <div id="menuGrid" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                <!-- JS will inject cards here -->
-                <p class="col-span-full text-center text-gray-500">Loading brews...</p>
-            </div>
-        </section>
+                        <div id="menuGrid" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                                <p class="col-span-full text-center text-gray-500">Loading brews...</p>
+            </div>
+        </section>
 
-        <!-- 3. PRODUCT DETAIL PAGE -->
-        <section id="detailPage" class="page-section hidden px-6 py-12 max-w-5xl mx-auto">
-            <button onclick="showPage('menuPage')" class="mb-6 text-gray-400 hover:text-white flex items-center gap-2">
-                <i class="fas fa-arrow-left"></i> Back to Menu
-            </button>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-12">
-                <div class="h-96 bg-zinc-800 border border-zinc-700">
-                    <img id="detailImage" src="" class="w-full h-full object-cover">
-                </div>
-                <div class="flex flex-col justify-center">
-                    <h2 id="detailName" class="text-4xl font-oswald font-bold uppercase mb-2">Product Name</h2>
-                    <div id="detailPrice" class="text-2xl text-street-yellow font-bold mb-6">RM 0.00</div>
-                    <p id="detailDesc" class="text-gray-400 mb-8 leading-relaxed">Description goes here.</p>
-                    
-                    <div class="flex gap-4">
-                        <input type="number" value="1" min="1" class="bg-black border border-zinc-600 text-white w-16 text-center p-3">
-                        <button id="detailAddBtn" class="flex-1 bg-white text-black font-bold uppercase tracking-widest hover:bg-street-yellow transition p-3">
-                            Add to Order
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </section>
+                <section id="detailPage" class="page-section hidden px-6 py-12 max-w-5xl mx-auto">
+            <button onclick="showPage('menuPage')" class="mb-6 text-gray-400 hover:text-white flex items-center gap-2">
+                <i class="fas fa-arrow-left"></i> Back to Menu
+            </button>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-12">
+                <div class="h-96 bg-zinc-800 border border-zinc-700">
+                    <img id="detailImage" src="" class="w-full h-full object-cover">
+                </div>
+                <div class="flex flex-col justify-center">
+                    <h2 id="detailName" class="text-4xl font-oswald font-bold uppercase mb-2">Product Name</h2>
+                    <div id="detailPrice" class="text-2xl text-street-yellow font-bold mb-6">RM 0.00</div>
+                    <p id="detailDesc" class="text-gray-400 mb-8 leading-relaxed">Description goes here.</p>
+                    
+                    <div class="flex gap-4">
+                        <input type="number" value="1" min="1" class="bg-black border border-zinc-600 text-white w-16 text-center p-3">
+                        <button id="detailAddBtn" class="flex-1 bg-white text-black font-bold uppercase tracking-widest hover:bg-street-yellow transition p-3">
+                            Add to Order
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
 
-        <!-- 4. CART PAGE -->
-        <section id="cartPage" class="page-section hidden px-6 py-12 max-w-3xl mx-auto">
-            <h2 class="text-3xl font-oswald font-bold uppercase mb-8">Your Cart</h2>
-            
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <!-- Cart Items List -->
-                <div class="md:col-span-2 bg-zinc-900 p-6 border border-zinc-800">
-                    <div id="cartList" class="space-y-4">
-                        <!-- JS injects items here -->
-                        <p class="text-gray-500">Empty</p>
-                    </div>
-                </div>
+                <section id="cartPage" class="page-section hidden px-6 py-12 max-w-3xl mx-auto">
+            <h2 class="text-3xl font-oswald font-bold uppercase mb-8">Your Cart</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                <div class="md:col-span-2 bg-zinc-900 p-6 border border-zinc-800">
+                    <div id="cartList" class="space-y-4">
+                                                <p class="text-gray-500">Empty</p>
+                    </div>
+                </div>
 
-                <!-- Cart Summary -->
-                <div class="bg-zinc-800 p-6 h-fit">
-                    <h3 class="font-oswald text-xl mb-4">Summary</h3>
-                    <div class="flex justify-between mb-2 text-gray-400">
-                        <span>Subtotal</span>
-                        <span id="cartTotal">RM 0.00</span>
-                    </div>
-                    <div class="flex justify-between mb-6 text-gray-400">
-                        <span>Tax (0%)</span>
-                        <span>RM 0.00</span>
-                    </div>
-                    <button onclick="showPage('checkoutPage')" class="w-full bg-street-yellow text-black font-bold py-3 uppercase tracking-widest hover:bg-white transition">
-                        Checkout
-                    </button>
-                </div>
-            </div>
-        </section>
+                                <div class="bg-zinc-800 p-6 h-fit">
+                    <h3 class="font-oswald text-xl mb-4">Summary</h3>
+                    <div class="flex justify-between mb-2 text-gray-400">
+                        <span>Subtotal</span>
+                        <span id="cartTotal">RM 0.00</span>
+                    </div>
+                    <div class="flex justify-between mb-6 text-gray-400">
+                        <span>Tax (0%)</span>
+                        <span>RM 0.00</span>
+                    </div>
+                    <button onclick="showPage('checkoutPage')" class="w-full bg-street-yellow text-black font-bold py-3 uppercase tracking-widest hover:bg-white transition">
+                        Checkout
+                    </button>
+                </div>
+            </div>
+        </section>
 
-        <!-- 5. CHECKOUT PAGE -->
-        <section id="checkoutPage" class="page-section hidden px-6 py-12 max-w-2xl mx-auto">
-            <div class="mb-8 text-center">
-                <h2 class="text-3xl font-oswald font-bold uppercase">Secure Checkout</h2>
-                <p class="text-gray-500 mt-2">Total Due: <span id="checkoutTotal" class="text-street-yellow font-bold">RM 0.00</span></p>
-            </div>
+                <section id="checkoutPage" class="page-section hidden px-6 py-12 max-w-2xl mx-auto">
+            <div class="mb-8 text-center">
+                <h2 class="text-3xl font-oswald font-bold uppercase">Secure Checkout</h2>
+                <p class="text-gray-500 mt-2">Total Due: <span id="checkoutTotal" class="text-street-yellow font-bold">RM 0.00</span></p>
+            </div>
 
-            <form onsubmit="submitCheckout(event)" class="space-y-6">
-                <!-- Customer Info -->
-                <div class="bg-zinc-900 p-6 border border-zinc-800">
-                    <h3 class="text-xl font-oswald mb-4 border-b border-zinc-700 pb-2">1. Contact Info</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs text-gray-500 uppercase mb-1">Name</label>
-                            <input type="text" required class="w-full bg-black border border-zinc-700 p-3 text-white focus:border-street-yellow outline-none">
-                        </div>
-                        <div>
-                            <label class="block text-xs text-gray-500 uppercase mb-1">Phone (WhatsApp)</label>
-                            <input type="tel" required class="w-full bg-black border border-zinc-700 p-3 text-white focus:border-street-yellow outline-none">
-                        </div>
-                    </div>
-                </div>
+            <form onsubmit="submitCheckout(event)" class="space-y-6">
+                                <div class="bg-zinc-900 p-6 border border-zinc-800">
+                    <h3 class="text-xl font-oswald mb-4 border-b border-zinc-700 pb-2">1. Contact Info</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-gray-500 uppercase mb-1">Name</label>
+                            <input type="text" required class="w-full bg-black border border-zinc-700 p-3 text-white focus:border-street-yellow outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 uppercase mb-1">Phone (WhatsApp)</label>
+                            <input type="tel" required class="w-full bg-black border border-zinc-700 p-3 text-white focus:border-street-yellow outline-none">
+                        </div>
+                    </div>
+                </div>
 
-                <!-- Payment Method -->
-                <div class="bg-zinc-900 p-6 border border-zinc-800">
-                    <h3 class="text-xl font-oswald mb-4 border-b border-zinc-700 pb-2">2. Payment</h3>
-                    <div class="space-y-3">
-                        <label class="flex items-center gap-3 p-3 border border-zinc-700 cursor-pointer hover:border-street-yellow">
-                            <input type="radio" name="payment" value="fpx" checked class="accent-street-yellow">
-                            <div>
-                                <div class="font-bold">Online Banking (FPX)</div>
-                                <div class="text-xs text-gray-500">ToyyibPay / BillPlz</div>
-                            </div>
-                        </label>
-                        <label class="flex items-center gap-3 p-3 border border-zinc-700 cursor-pointer hover:border-street-yellow">
-                            <input type="radio" name="payment" value="ewallet" class="accent-street-yellow">
-                            <div>
-                                <div class="font-bold">E-Wallet</div>
-                                <div class="text-xs text-gray-500">Touch 'n Go / GrabPay</div>
-                            </div>
-                        </label>
-                        <label class="flex items-center gap-3 p-3 border border-zinc-700 cursor-pointer hover:border-street-yellow">
-                            <input type="radio" name="payment" value="cash" class="accent-street-yellow">
-                            <div>
-                                <div class="font-bold">Cash on Pickup</div>
-                                <div class="text-xs text-gray-500">Pay at counter</div>
-                            </div>
-                        </label>
-                    </div>
-                </div>
+                                <div class="bg-zinc-900 p-6 border border-zinc-800">
+                    <h3 class="text-xl font-oswald mb-4 border-b border-zinc-700 pb-2">2. Payment</h3>
+                    <div class="space-y-3">
+                        <label class="flex items-center gap-3 p-3 border border-zinc-700 cursor-pointer hover:border-street-yellow">
+                            <input type="radio" name="payment" value="fpx" checked class="accent-street-yellow">
+                            <div>
+                                <div class="font-bold">Online Banking (FPX)</div>
+                                <div class="text-xs text-gray-500">ToyyibPay / BillPlz</div>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-3 p-3 border border-zinc-700 cursor-pointer hover:border-street-yellow">
+                            <input type="radio" name="payment" value="ewallet" class="accent-street-yellow">
+                            <div>
+                                <div class="font-bold">E-Wallet</div>
+                                <div class="text-xs text-gray-500">Touch 'n Go / GrabPay</div>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-3 p-3 border border-zinc-700 cursor-pointer hover:border-street-yellow">
+                            <input type="radio" name="payment" value="cash" class="accent-street-yellow">
+                            <div>
+                                <div class="font-bold">Cash on Pickup</div>
+                                <div class="text-xs text-gray-500">Pay at counter</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
 
-                <button type="submit" class="w-full bg-green-600 text-white font-bold py-4 text-lg uppercase tracking-widest hover:bg-green-500 transition shadow-lg shadow-green-900/20">
-                    Place Order
-                </button>
-            </form>
-        </section>
+                <button type="submit" class="w-full bg-green-600 text-white font-bold py-4 text-lg uppercase tracking-widest hover:bg-green-500 transition shadow-lg shadow-green-900/20">
+                    Place Order
+                </button>
+            </form>
+        </section>
 
-        <!-- 6. ADMIN PANEL (Basic Layout) -->
-        <section id="adminPage" class="page-section hidden px-6 py-12 max-w-4xl mx-auto">
-            <h2 class="text-3xl font-oswald font-bold uppercase mb-8 text-red-500">Admin Panel</h2>
+                <section id="adminPage" class="page-section hidden px-6 py-12 max-w-4xl mx-auto">
+            <h2 class="text-3xl font-oswald font-bold uppercase mb-8 text-red-500">Admin Panel</h2>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <!-- Add Product Form -->
-                <div class="bg-zinc-900 p-6 border border-zinc-800">
-                    <h3 class="font-oswald text-xl mb-4">Add New Product</h3>
-                    <form id="adminForm" onsubmit="addProduct(event)" class="space-y-4">
-                        <div>
-                            <label class="block text-xs text-gray-500 mb-1">Product Name</label>
-                            <input type="text" id="prodName" required placeholder="e.g. Kopi O" class="w-full bg-black border border-zinc-700 p-2 text-sm text-white">
-                        </div>
-                        <div>
-                            <label class="block text-xs text-gray-500 mb-1">Price (RM)</label>
-                            <input type="number" id="prodPrice" step="0.01" required placeholder="3.50" class="w-full bg-black border border-zinc-700 p-2 text-sm text-white">
-                        </div>
-                        <div>
-                            <label class="block text-xs text-gray-500 mb-1">Description</label>
-                            <textarea id="prodDesc" required rows="2" class="w-full bg-black border border-zinc-700 p-2 text-sm text-white"></textarea>
-                        </div>
-                        <div>
-                            <label class="block text-xs text-gray-500 mb-1">Image URL</label>
-                            <input type="url" id="prodImg" placeholder="https://..." class="w-full bg-black border border-zinc-700 p-2 text-sm text-white">
-                        </div>
-                        <button type="submit" class="w-full bg-zinc-700 text-white font-bold py-2 hover:bg-white hover:text-black transition text-sm uppercase">
-                            Add Item
-                        </button>
-                    </form>
-                </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                <div class="bg-zinc-900 p-6 border border-zinc-800">
+                    <h3 class="font-oswald text-xl mb-4">Add New Product</h3>
+                    <form id="adminForm" onsubmit="addProduct(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Product Name</label>
+                            <input type="text" id="prodName" required placeholder="e.g. Kopi O" class="w-full bg-black border border-zinc-700 p-2 text-sm text-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Price (RM)</label>
+                            <input type="number" id="prodPrice" step="0.01" required placeholder="3.50" class="w-full bg-black border border-zinc-700 p-2 text-sm text-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Description</label>
+                            <textarea id="prodDesc" required rows="2" class="w-full bg-black border border-zinc-700 p-2 text-sm text-white"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Image URL</label>
+                            <input type="url" id="prodImg" placeholder="https://..." class="w-full bg-black border border-zinc-700 p-2 text-sm text-white">
+                        </div>
+                        <button type="submit" class="w-full bg-zinc-700 text-white font-bold py-2 hover:bg-white hover:text-black transition text-sm uppercase">
+                            Add Item
+                        </button>
+                    </form>
+                </div>
 
-                <!-- Product List Table -->
-                <div class="md:col-span-2 bg-zinc-900 p-6 border border-zinc-800 overflow-x-auto">
-                    <h3 class="font-oswald text-xl mb-4">Current Inventory</h3>
-                    <table class="w-full text-sm text-left text-gray-400">
-                        <thead class="text-xs text-gray-500 uppercase bg-black">
-                            <tr>
-                                <th class="p-3">Name</th>
-                                <th class="p-3">Price</th>
-                                <th class="p-3 text-right">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="adminTableBody">
-                            <!-- JS injects rows -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
+                                <div class="md:col-span-2 bg-zinc-900 p-6 border border-zinc-800 overflow-x-auto">
+                    <h3 class="font-oswald text-xl mb-4">Current Inventory</h3>
+                    <table class="w-full text-sm text-left text-gray-400">
+                        <thead class="text-xs text-gray-500 uppercase bg-black">
+                            <tr>
+                                <th class="p-3">Name</th>
+                                <th class="p-3">Price</th>
+                                <th class="p-3 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adminTableBody">
+                                                    </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
 
-    </main>
+    </main>
 
-    <!-- Footer -->
-    <footer class="bg-black border-t border-zinc-800 py-8 text-center text-zinc-600 text-sm">
-        <p>&copy; 2025 Kopi Jalanan. Kota Samarahan.</p>
-        <p class="mt-2">Student Project Prototype.</p>
-    </footer>
+        <footer class="bg-black border-t border-zinc-800 py-8 text-center text-zinc-600 text-sm">
+        <p>&copy; 2025 Kopi Jalanan. Kota Samarahan.</p>
+        <p class="mt-2">Student Project Prototype.</p>
+    </footer>
 
 </body>
 </html>
